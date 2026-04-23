@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2026-04-23
+
+### Changed
+
+- Reworked Windows shortcut repair to run from a temp PowerShell script with explicit verification instead of a fragile inline command.
+- Added dedicated `BetterStremio.lnk` launchers on Windows so there is always a working shortcut even if Stremio's own shortcut is regenerated without the BetterStremio arguments.
+
 ## [1.0.6] - 2026-04-23
 
 ### Added

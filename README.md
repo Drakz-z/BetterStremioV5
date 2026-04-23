@@ -24,6 +24,7 @@ Download and run the installer from the [releases page](https://github.com/Drakz
 
 > [!TIP]
 > BetterStremio still works through a patched shortcut. On Stremio v5 the launcher uses `--webui-url=http://127.0.0.1:11470`, while older Stremio v4 builds still use `--development --streaming-server`.
+> The Windows installer also creates a dedicated `BetterStremio` shortcut so there is always a launcher that opens the local BetterStremio web UI directly.
 
 
 For **Linux users**, use the startup flags that match your Stremio version: `--webui-url=http://127.0.0.1:11470` for v5, or `--development --streaming-server` for older v4 builds.  

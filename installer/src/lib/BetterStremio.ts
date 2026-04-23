@@ -123,6 +123,25 @@ function getWindowsKnownShortcutPaths() {
   ].filter(Boolean);
 }
 
+function getWindowsDedicatedShortcutPaths() {
+  const appData = Deno.env.get("APPDATA");
+  const userProfile = Deno.env.get("USERPROFILE");
+
+  return [
+    appData
+      ? path.join(
+        appData,
+        "Microsoft",
+        "Windows",
+        "Start Menu",
+        "Programs",
+        "BetterStremio.lnk",
+      )
+      : "",
+    userProfile ? path.join(userProfile, "Desktop", "BetterStremio.lnk") : "",
+  ].filter(Boolean);
+}
+
 function exists(targetPath: string) {
   try {
     Deno.statSync(targetPath);
@@ -203,114 +222,192 @@ function updateShortcuts(
     event.window.run(
       "setStatus('Scanning for existing Stremio shortcuts (this may take a while)...')",
     );
-    const psAddArgs = addArgs.replaceAll("'", "''");
-    const psPrimaryExecutable = getPrimaryExecutablePath(stremioPath).replaceAll("'", "''");
-    const psWorkingDirectory = stremioPath.replaceAll("'", "''");
-    const psExecutableNames = getExecutableNames(stremioPath)
-      .map((name) => `'${name.replaceAll("'", "''")}'`)
-      .join(", ");
-    const psExecutablePaths = getExecutablePaths(stremioPath)
-      .map((targetPath) => `'${targetPath.replaceAll("'", "''")}'`)
-      .join(", ");
-    const psKnownShortcutPaths = getWindowsKnownShortcutPaths()
-      .map((targetPath) => `'${targetPath.replaceAll("'", "''")}'`)
-      .join(", ");
-    const psRemoveArgs = removeArgs
-      .map((arg) => `'${arg.replaceAll("'", "''")}'`)
-      .join(", ");
-    const shortcutCmd = new Deno.Command("powershell", {
-      args: [
-        "-c",
-        `[void][Reflection.Assembly]::LoadWithPartialName('IWshRuntimeLibrary') | Out-Null
+    const configPath = Deno.makeTempFileSync({ suffix: ".json" });
+    const scriptPath = Deno.makeTempFileSync({ suffix: ".ps1" });
+    const primaryExecutable = getPrimaryExecutablePath(stremioPath);
+    const dedicatedShortcutPaths = getWindowsDedicatedShortcutPaths();
+
+    Deno.writeTextFileSync(
+      configPath,
+      JSON.stringify({
+        addArgs,
+        removeArgs,
+        executableNames: getExecutableNames(stremioPath),
+        executablePaths: getExecutablePaths(stremioPath),
+        knownShortcutPaths: getWindowsKnownShortcutPaths(),
+        dedicatedShortcutPaths,
+        primaryExecutable,
+        workingDirectory: stremioPath,
+      }),
+    );
+
+    Deno.writeTextFileSync(
+      scriptPath,
+      String.raw`
+$ErrorActionPreference = "Stop"
+$config = Get-Content -Raw -Path $args[0] | ConvertFrom-Json
+[void][Reflection.Assembly]::LoadWithPartialName("IWshRuntimeLibrary") | Out-Null
 $shell = New-Object -ComObject WScript.Shell
-$execNames = @(${psExecutableNames})
-$execTargets = @(${psExecutablePaths})
-$removeArgs = @(${psRemoveArgs})
-$knownShortcutPaths = @(${psKnownShortcutPaths}) | Where-Object { $_ }
-$addArg = '${psAddArgs}'
-$primaryExecutable = '${psPrimaryExecutable}'
-$workingDirectory = '${psWorkingDirectory}'
 $roots = @(
   [Environment]::GetFolderPath([Environment+SpecialFolder]::Desktop),
-  "$env:PROGRAMDATA\\Microsoft",
-  "$env:APPDATA\\Microsoft",
-  "$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar"
-) | Select-Object -Unique
-$shortcuts = [System.Collections.Generic.List[string]]::new()
-foreach ($shortcutPath in $knownShortcutPaths) {
-  if (Test-Path $shortcutPath) {
-    $shortcuts.Add($shortcutPath)
+  "$env:PROGRAMDATA\Microsoft",
+  "$env:APPDATA\Microsoft",
+  "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
+) | Where-Object { $_ } | Select-Object -Unique
+
+function Ensure-Shortcut([string]$shortcutPath, [bool]$forceTarget) {
+  $shortcutDir = Split-Path -Parent $shortcutPath
+  if ($shortcutDir) {
+    New-Item -ItemType Directory -Force -Path $shortcutDir | Out-Null
   }
-}
-foreach ($root in $roots) {
-  if (Test-Path $root) {
-    Get-ChildItem -Recurse -Path $root -Filter '*.lnk' -ErrorAction SilentlyContinue | ForEach-Object {
-      $shortcut = $shell.CreateShortcut($_.FullName)
-      $targetName = [System.IO.Path]::GetFileName($shortcut.TargetPath)
-      if ($targetName -and $execNames -contains $targetName) {
-        $shortcuts.Add($_.FullName)
+
+  $shortcut = $shell.CreateShortcut($shortcutPath)
+  $targetPath = $shortcut.TargetPath
+  if (
+    $forceTarget -or
+    -not $targetPath -or
+    -not (Test-Path $targetPath) -or
+    -not ($config.executablePaths -contains $targetPath)
+  ) {
+    $shortcut.TargetPath = $config.primaryExecutable
+  }
+
+  $shortcut.WorkingDirectory = $config.workingDirectory
+  $shortcut.IconLocation = "$($config.primaryExecutable),0"
+
+  if ($null -eq $shortcut.Arguments) {
+    $shortcut.Arguments = ""
+  }
+
+  foreach ($pattern in $config.removeArgs) {
+    $shortcut.Arguments = $shortcut.Arguments.Replace($pattern, "")
+  }
+
+  if ($config.addArgs) {
+    $shortcut.Arguments = $shortcut.Arguments.Trim()
+    if ($shortcut.Arguments) {
+      if ($shortcut.Arguments -notlike "*$($config.addArgs.Trim())*") {
+        $shortcut.Arguments += $config.addArgs
       }
+    } else {
+      $shortcut.Arguments = $config.addArgs.Trim()
     }
   }
-}
-$shortcuts = $shortcuts | Sort-Object -Unique
-if ($addArg -and -not $shortcuts.Count -and $knownShortcutPaths.Count) {
-  $preferredShortcutPath = $knownShortcutPaths[0]
-  $preferredShortcutDir = Split-Path -Parent $preferredShortcutPath
-  if ($preferredShortcutDir) {
-    New-Item -ItemType Directory -Force -Path $preferredShortcutDir | Out-Null
-  }
-  $shortcut = $shell.CreateShortcut($preferredShortcutPath)
-  $shortcut.TargetPath = $primaryExecutable
-  $shortcut.WorkingDirectory = $workingDirectory
-  $shortcut.IconLocation = "\${primaryExecutable},0"
-  $shortcut.Arguments = ''
+
   $shortcut.Save()
-  $shortcuts = @($preferredShortcutPath)
+
+  $verify = $shell.CreateShortcut($shortcutPath)
+  [PSCustomObject]@{
+    path = $shortcutPath
+    arguments = $verify.Arguments
+    target = $verify.TargetPath
+  }
 }
-foreach ($shortcutPath in $shortcuts) {
-  $shortcut = $shell.CreateShortcut($shortcutPath)
-  $isKnownShortcut = $knownShortcutPaths -contains $shortcutPath
-  $targetPath = $shortcut.TargetPath
-  $targetName = [System.IO.Path]::GetFileName($targetPath)
-  $isStremioShortcut = $targetName -and $execNames -contains $targetName
-  if (-not $isKnownShortcut -and -not $isStremioShortcut) {
+
+$shortcutPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($shortcutPath in $config.knownShortcutPaths) {
+  if ($shortcutPath -and (Test-Path $shortcutPath)) {
+    [void]$shortcutPaths.Add($shortcutPath)
+  }
+}
+
+foreach ($root in $roots) {
+  if (-not (Test-Path $root)) {
     continue
   }
-  if ($addArg -and $isKnownShortcut) {
-    if (-not $targetPath -or -not (Test-Path $targetPath) -or -not ($execTargets -contains $targetPath)) {
-      $shortcut.TargetPath = $primaryExecutable
+
+  Get-ChildItem -Recurse -Path $root -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
+    $shortcut = $shell.CreateShortcut($_.FullName)
+    $targetName = [System.IO.Path]::GetFileName($shortcut.TargetPath)
+    if ($targetName -and $config.executableNames -contains $targetName) {
+      [void]$shortcutPaths.Add($_.FullName)
     }
-    $shortcut.WorkingDirectory = $workingDirectory
-    if (-not $shortcut.IconLocation) {
-      $shortcut.IconLocation = "\${primaryExecutable},0"
-    }
   }
-  if ($null -eq $shortcut.Arguments) {
-    $shortcut.Arguments = ''
-  }
-  foreach ($pattern in $removeArgs) {
-    $shortcut.Arguments = $shortcut.Arguments.Replace($pattern, '')
-  }
-  if ($addArg -and $shortcut.Arguments -notlike "*$addArg*") {
-    $shortcut.Arguments += $addArg
-  }
-  $shortcut.Save()
 }
-$shortcuts`,
+
+if ($config.addArgs) {
+  foreach ($shortcutPath in $config.knownShortcutPaths) {
+    if ($shortcutPath) {
+      [void]$shortcutPaths.Add($shortcutPath)
+    }
+  }
+  foreach ($shortcutPath in $config.dedicatedShortcutPaths) {
+    if ($shortcutPath) {
+      [void]$shortcutPaths.Add($shortcutPath)
+    }
+  }
+}
+
+$results = foreach ($shortcutPath in $shortcutPaths) {
+  if (-not $config.addArgs -and $config.dedicatedShortcutPaths -contains $shortcutPath) {
+    if (Test-Path $shortcutPath) {
+      Remove-Item -LiteralPath $shortcutPath -Force
+    }
+    continue
+  }
+  $forceTarget = $config.dedicatedShortcutPaths -contains $shortcutPath
+  Ensure-Shortcut -shortcutPath $shortcutPath -forceTarget:$forceTarget
+}
+
+$results | ConvertTo-Json -Compress
+`,
+    );
+
+    const shortcutCmd = new Deno.Command("powershell", {
+      args: [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        scriptPath,
+        configPath,
       ],
     });
-    const shortcuts = new TextDecoder()
-      .decode(shortcutCmd.outputSync().stdout)
-      .trim()
-      .split("\n")
-      .filter(Boolean);
+    const result = shortcutCmd.outputSync();
+    try {
+      if (result.code !== 0) {
+        throw new Error(new TextDecoder().decode(result.stderr).trim() || "Unknown PowerShell error.");
+      }
 
-    event.window.run(
-      "setStatus('Found " + shortcuts.length +
-        " shortcuts, updating cmd args (this may take a while)...')",
-    );
-    console.log("Shortcuts found", shortcuts);
+      const rawOutput = new TextDecoder().decode(result.stdout).trim();
+      const shortcutResults = rawOutput
+        ? JSON.parse(rawOutput) as Array<{ path: string; arguments: string; target: string }> | {
+          path: string;
+          arguments: string;
+          target: string;
+        }
+        : [];
+      const shortcuts = Array.isArray(shortcutResults)
+        ? shortcutResults
+        : [shortcutResults];
+
+      const missingLaunchArgs = addArgs
+        ? shortcuts.filter((shortcut) => !shortcut.arguments?.includes(addArgs.trim()))
+        : [];
+      if (missingLaunchArgs.length) {
+        throw new Error(
+          "Some shortcuts were created but still missed BetterStremio launch arguments: " +
+            missingLaunchArgs.map((shortcut) => shortcut.path).join(", "),
+        );
+      }
+
+      event.window.run(
+        "setStatus('Updated " + shortcuts.length +
+          " Stremio shortcuts, including BetterStremio launchers.')",
+      );
+      console.log("Shortcuts updated", shortcuts);
+    } finally {
+      try {
+        Deno.removeSync(configPath);
+      } catch (_e) {
+        // temp config already removed
+      }
+      try {
+        Deno.removeSync(scriptPath);
+      } catch (_e) {
+        // temp script already removed
+      }
+    }
   } else {
     event.window.run(
       "setStatus('Updating smartcode-stremio.desktop shortcut...')",
