@@ -245,20 +245,30 @@ function updateShortcuts(
       scriptPath,
       String.raw`
 $ErrorActionPreference = "Stop"
-$config = Get-Content -Raw -Path $args[0] | ConvertFrom-Json
-[void][Reflection.Assembly]::LoadWithPartialName("IWshRuntimeLibrary") | Out-Null
+$configJson = Get-Content -Raw -Path $args[0]
+$config = ConvertFrom-Json -InputObject $configJson
+[void][Reflection.Assembly]::LoadWithPartialName("IWshRuntimeLibrary")
 $shell = New-Object -ComObject WScript.Shell
-$roots = @(
+$rootCandidates = @(
   [Environment]::GetFolderPath([Environment+SpecialFolder]::Desktop),
   "$env:PROGRAMDATA\Microsoft",
   "$env:APPDATA\Microsoft",
   "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
-) | Where-Object { $_ } | Select-Object -Unique
+)
+$roots = New-Object System.Collections.Generic.List[string]
+foreach ($rootCandidate in $rootCandidates) {
+  if (-not $rootCandidate) {
+    continue
+  }
+  if ($roots -notcontains $rootCandidate) {
+    $roots.Add($rootCandidate)
+  }
+}
 
 function Ensure-Shortcut([string]$shortcutPath, [bool]$forceTarget) {
   $shortcutDir = Split-Path -Parent $shortcutPath
   if ($shortcutDir) {
-    New-Item -ItemType Directory -Force -Path $shortcutDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $shortcutDir > $null
   }
 
   $shortcut = $shell.CreateShortcut($shortcutPath)
@@ -316,11 +326,11 @@ foreach ($root in $roots) {
     continue
   }
 
-  Get-ChildItem -Recurse -Path $root -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
-    $shortcut = $shell.CreateShortcut($_.FullName)
+  foreach ($file in Get-ChildItem -Recurse -Path $root -Filter "*.lnk" -ErrorAction SilentlyContinue) {
+    $shortcut = $shell.CreateShortcut($file.FullName)
     $targetName = [System.IO.Path]::GetFileName($shortcut.TargetPath)
     if ($targetName -and $config.executableNames -contains $targetName) {
-      [void]$shortcutPaths.Add($_.FullName)
+      [void]$shortcutPaths.Add($file.FullName)
     }
   }
 }
@@ -346,10 +356,14 @@ $results = foreach ($shortcutPath in $shortcutPaths) {
     continue
   }
   $forceTarget = $config.dedicatedShortcutPaths -contains $shortcutPath
-  Ensure-Shortcut -shortcutPath $shortcutPath -forceTarget:$forceTarget
+  try {
+    Ensure-Shortcut -shortcutPath $shortcutPath -forceTarget:$forceTarget
+  } catch [System.UnauthorizedAccessException] {
+    continue
+  }
 }
 
-$results | ConvertTo-Json -Compress
+ConvertTo-Json -InputObject $results -Compress
 `,
     );
 

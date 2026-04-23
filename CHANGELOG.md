@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2026-04-23
+
+### Fixed
+
+- Windows shortcut repair no longer fails the whole install when a protected machine-wide `Stremio.lnk` cannot be modified.
+- Simplified the shortcut repair PowerShell script to avoid the pipeline creation error seen on some Windows installs.
+
 ## [1.0.7] - 2026-04-23
 
 ### Changed

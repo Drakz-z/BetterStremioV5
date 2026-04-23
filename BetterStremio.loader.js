@@ -5,7 +5,7 @@
  */
 
 (function boot() {
-  BetterStremio.version = "1.0.7";
+  BetterStremio.version = "1.0.8";
   BetterStremio.errors = [];
 
   BetterStremio.Data = {
