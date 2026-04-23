@@ -145,7 +145,7 @@ enginefs.router.use("/better-stremio/src", (function(req, res, next) {
             "linux": "xdg-open",
             "macos": "open"
         } [platform];
-        child_process.spawn(cmd, ["https://github.com/MateusAquino/BetterStremio/blob/main/CHANGELOG.md"]);
+        child_process.spawn(cmd, ["https://github.com/Drakz-z/BetterStremioV5/blob/main/CHANGELOG.md"]);
         res.writeHead(204);
         return res.end();
     } catch (err) {

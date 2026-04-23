@@ -1,11 +1,11 @@
 /**
  * This is the BetterStremio Loader, responsible for activating plugins and themes.
  *
- * @see {@link https://github.com/MateusAquino/BetterStremio} for further instructions.
+ * @see {@link https://github.com/Drakz-z/BetterStremioV5} for further instructions.
  */
 
 (function boot() {
-  BetterStremio.version = "1.0.5";
+  BetterStremio.version = "1.0.6";
   BetterStremio.errors = [];
 
   BetterStremio.Data = {
@@ -139,6 +139,344 @@
     };
   }
 
+  function escapeHTML(value) {
+    return String(value || "").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    })[char]);
+  }
+
+  function isLegacyShell() {
+    return typeof stremioApp !== "undefined" &&
+      document.getElementById("addonsTpl");
+  }
+
+  function runPluginLifecycle(pluginName, lifecycle) {
+    try {
+      BetterStremio.Internal.plugins[pluginName]?.[lifecycle]?.();
+    } catch (e) {
+      console.error(
+        `[BetterStremio] Plugin '${pluginName}' threw an exception at ${lifecycle}:`,
+        e,
+      );
+      BetterStremio.errors.push([lifecycle, e]);
+    }
+  }
+
+  function ensureToastFallback() {
+    if (BetterStremio.Toasts) return;
+
+    const ensureContainer = () => {
+      let container = document.getElementById("bs-toast-container");
+      if (container) return container;
+      container = document.createElement("div");
+      container.id = "bs-toast-container";
+      container.style.cssText =
+        "position:fixed;right:20px;bottom:20px;z-index:2147483647;display:flex;flex-direction:column;gap:10px;max-width:360px;";
+      document.body.appendChild(container);
+      return container;
+    };
+
+    const pushToast = (type, title, desc = "") => {
+      const container = ensureContainer();
+      const toast = document.createElement("div");
+      const colors = {
+        error: "#d9534f",
+        info: "#3a7afe",
+        success: "#20a779",
+        warning: "#c69214",
+      };
+      toast.style.cssText =
+        `background:#10151d;color:#fff;border-left:4px solid ${
+          colors[type] || colors.info
+        };padding:12px 14px;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.35);font-family:system-ui,sans-serif;`;
+      toast.innerHTML =
+        `<strong style="display:block;margin-bottom:4px;">${
+          escapeHTML(title)
+        }</strong>${
+          desc ? `<div style="opacity:.82;font-size:13px;">${escapeHTML(desc)}</div>` : ""
+        }`;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 4500);
+    };
+
+    BetterStremio.Toasts = {
+      error: (title, desc) => pushToast("error", title, desc),
+      info: (title, desc) => pushToast("info", title, desc),
+      success: (title, desc) => pushToast("success", title, desc),
+      warning: (title, desc) => pushToast("warning", title, desc),
+    };
+  }
+
+  async function copyText(text) {
+    if (!text) return false;
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+    const input = document.createElement("textarea");
+    input.value = text;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    const copied = document.execCommand("copy");
+    input.remove();
+    return copied;
+  }
+
+  function initV5UI() {
+    ensureToastFallback();
+
+    const emptyImage =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23202a38'/%3E%3Cpath d='M20 42V22h24v20H20Zm4-4h16V26H24v12Zm4-8a2 2 0 1 1 0-4a2 2 0 0 1 0 4Zm8 0a2 2 0 1 1 0-4a2 2 0 0 1 0 4ZM29 34h6a3 3 0 0 1-6 0Z' fill='%23fff'/%3E%3C/svg%3E";
+    const state = { open: false, type: "plugins" };
+
+    const ensureRoot = () => {
+      let root = document.getElementById("bs-v5-root");
+      if (root) return root;
+
+      const style = document.createElement("style");
+      style.id = "bs-v5-style";
+      style.textContent = `
+        #bs-v5-root { position: fixed; right: 24px; bottom: 24px; z-index: 2147483646; font-family: system-ui, sans-serif; }
+        #bs-v5-toggle { border: 0; border-radius: 999px; background: linear-gradient(135deg, #2a7fff, #7a4dff); color: #fff; padding: 12px 18px; font-weight: 700; cursor: pointer; box-shadow: 0 12px 32px rgba(0, 0, 0, .35); display: flex; gap: 10px; align-items: center; }
+        #bs-v5-toggle span { background: rgba(255, 255, 255, .22); min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
+        #bs-v5-panel { position: absolute; right: 0; bottom: 60px; width: min(960px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 110px)); overflow: auto; background: rgba(8, 12, 18, .98); color: #fff; border: 1px solid rgba(255,255,255,.08); border-radius: 24px; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+        #bs-v5-panel * { box-sizing: border-box; }
+        .bs-v5-header { padding: 22px 24px 14px; display: flex; justify-content: space-between; gap: 12px; align-items: center; position: sticky; top: 0; background: rgba(8, 12, 18, .98); border-bottom: 1px solid rgba(255,255,255,.08); }
+        .bs-v5-title { display: flex; flex-direction: column; gap: 4px; }
+        .bs-v5-title strong { font-size: 20px; }
+        .bs-v5-title span { color: rgba(255,255,255,.68); font-size: 13px; }
+        .bs-v5-actions, .bs-v5-tabs { display: flex; gap: 10px; flex-wrap: wrap; }
+        .bs-v5-btn { border: 0; border-radius: 999px; background: rgba(255,255,255,.08); color: #fff; padding: 10px 14px; cursor: pointer; font-weight: 600; }
+        .bs-v5-btn.active { background: #fff; color: #090d12; }
+        .bs-v5-btn.ghost { background: transparent; border: 1px solid rgba(255,255,255,.14); }
+        .bs-v5-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; padding: 20px 24px 24px; }
+        .bs-v5-card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+        .bs-v5-card-head { display: flex; gap: 14px; }
+        .bs-v5-card-head img { width: 64px; height: 64px; border-radius: 14px; object-fit: cover; background: rgba(255,255,255,.06); }
+        .bs-v5-card h3 { margin: 0; font-size: 17px; }
+        .bs-v5-card small { color: rgba(255,255,255,.58); display: block; margin-top: 2px; }
+        .bs-v5-card p { margin: 8px 0 0; color: rgba(255,255,255,.74); font-size: 14px; line-height: 1.45; }
+        .bs-v5-card-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+        .bs-v5-card-actions .bs-v5-btn { padding: 9px 12px; font-size: 13px; }
+        .bs-v5-empty { padding: 44px 24px; color: rgba(255,255,255,.62); text-align: center; }
+        @media (max-width: 640px) {
+          #bs-v5-root { right: 12px; left: 12px; bottom: 12px; }
+          #bs-v5-toggle { width: 100%; justify-content: space-between; }
+          #bs-v5-panel { width: 100%; right: 0; bottom: 64px; }
+        }
+      `;
+      document.head.appendChild(style);
+
+      root = document.createElement("div");
+      root.id = "bs-v5-root";
+      document.body.appendChild(root);
+      return root;
+    };
+
+    const updateEntry = async (type, name) => {
+      const context = type === "plugins"
+        ? BetterStremio.Plugins
+        : BetterStremio.Themes;
+      const entries = type === "plugins"
+        ? BetterStremio.Internal.plugins
+        : BetterStremio.Internal.themes;
+      const enabledValues = type === "plugins"
+        ? BetterStremio.Internal.enabledPlugins
+        : BetterStremio.Internal.enabledThemes;
+
+      const isEnabled = enabledValues.includes(name);
+      if (isEnabled) context.disable(name);
+      const updateURL = entries[name]?.getUpdateURL?.();
+      if (!updateURL) return;
+
+      await BetterStremio.Internal.update(`${type}/${name}`, updateURL);
+      BetterStremio.Internal.reloadInfo();
+      if (isEnabled) context.enable(name);
+      await checkPluginUpdates();
+      await checkThemeUpdates();
+      BetterStremio.Internal.reloadUI();
+      BetterStremio.Toasts.info(
+        `Updated ${type === "plugins" ? "Plugin" : "Theme"} "${
+          entries[name]?.getName?.() || name
+        }"`,
+      );
+    };
+
+    const render = () => {
+      const root = ensureRoot();
+      const entries = state.type === "plugins"
+        ? BetterStremio.Internal.plugins
+        : BetterStremio.Internal.themes;
+      const enabledValues = state.type === "plugins"
+        ? BetterStremio.Internal.enabledPlugins
+        : BetterStremio.Internal.enabledThemes;
+      const updateCount =
+        Object.values(BetterStremio.Internal.plugins).filter((p) =>
+          p.bsUpdateAvailable
+        ).length + Object.values(BetterStremio.Internal.themes).filter((t) =>
+          t.bsUpdateAvailable
+        ).length;
+      const cards = Object.entries(entries).map(([name, entry]) =>
+        `<article class="bs-v5-card">
+          <div class="bs-v5-card-head">
+            <img src="${escapeHTML(entry.getImage?.() || emptyImage)}" alt="">
+            <div>
+              <h3>${escapeHTML(entry.getName?.() || name)}</h3>
+              <small>v${escapeHTML(entry.getVersion?.() || "0.0.0")}</small>
+              <small>By: @${escapeHTML(entry.getAuthor?.() || "unknown")}</small>
+              <p>${escapeHTML(entry.getDescription?.() || "")}</p>
+            </div>
+          </div>
+          <div class="bs-v5-card-actions">
+            <button class="bs-v5-btn" data-bs-action="${
+              enabledValues.includes(name) ? "disable" : "enable"
+            }" data-bs-name="${escapeHTML(name)}">${
+              enabledValues.includes(name) ? "Enabled" : "Disabled"
+            }</button>
+            ${
+              entry.onSettings
+                ? `<button class="bs-v5-btn ghost" data-bs-action="settings" data-bs-name="${escapeHTML(name)}">Settings</button>`
+                : ""
+            }
+            ${
+              entry.getShareURL?.() || entry.getUpdateURL?.()
+                ? `<button class="bs-v5-btn ghost" data-bs-action="share" data-bs-name="${escapeHTML(name)}">Share</button>`
+                : ""
+            }
+            ${
+              entry.bsUpdateAvailable
+                ? `<button class="bs-v5-btn ghost" data-bs-action="update" data-bs-name="${escapeHTML(name)}">Update</button>`
+                : ""
+            }
+          </div>
+        </article>`
+      ).join("");
+
+      root.innerHTML =
+        `<button id="bs-v5-toggle" type="button">BetterStremio${
+          updateCount > 0 ? `<span>${updateCount > 9 ? "9+" : updateCount}</span>` : ""
+        }</button>${
+          state.open
+            ? `<section id="bs-v5-panel">
+                <div class="bs-v5-header">
+                  <div class="bs-v5-title">
+                    <strong>BetterStremio</strong>
+                    <span>v${escapeHTML(BetterStremio.version)} for Stremio Web / v5</span>
+                  </div>
+                  <div class="bs-v5-actions">
+                    <button class="bs-v5-btn ghost" data-bs-action="reload-all">Reload</button>
+                    <button class="bs-v5-btn ghost" data-bs-action="open-folder">Open Folder</button>
+                    <button class="bs-v5-btn ghost" data-bs-action="changelog">Changelog</button>
+                    <button class="bs-v5-btn ghost" data-bs-action="close">Close</button>
+                  </div>
+                </div>
+                <div class="bs-v5-header" style="top:76px;">
+                  <div class="bs-v5-tabs">
+                    <button class="bs-v5-btn ${
+                      state.type === "plugins" ? "active" : ""
+                    }" data-bs-action="switch-type" data-bs-type="plugins">Plugins</button>
+                    <button class="bs-v5-btn ${
+                      state.type === "themes" ? "active" : ""
+                    }" data-bs-action="switch-type" data-bs-type="themes">Themes</button>
+                  </div>
+                </div>
+                ${
+                  cards
+                    ? `<div class="bs-v5-grid">${cards}</div>`
+                    : `<div class="bs-v5-empty">No ${escapeHTML(state.type)} found in your BetterStremio folder yet.</div>`
+                }
+              </section>`
+            : ""
+        }`;
+
+      root.querySelector("#bs-v5-toggle")?.addEventListener("click", () => {
+        state.open = !state.open;
+        render();
+      });
+
+      root.querySelectorAll("[data-bs-action]").forEach((element) => {
+        element.addEventListener("click", async (event) => {
+          const action = event.currentTarget.dataset.bsAction;
+          const name = event.currentTarget.dataset.bsName;
+          const type = event.currentTarget.dataset.bsType;
+
+          if (action === "close") {
+            state.open = false;
+            render();
+            return;
+          }
+          if (action === "switch-type" && type) {
+            state.type = type;
+            render();
+            return;
+          }
+          if (action === "reload-all") {
+            const context = state.type === "plugins"
+              ? BetterStremio.Plugins
+              : BetterStremio.Themes;
+            await context.reload();
+            render();
+            return;
+          }
+          if (action === "open-folder") {
+            BetterStremio.Internal.fetch("/folder", false);
+            return;
+          }
+          if (action === "changelog") {
+            BetterStremio.Internal.fetch("/changelog", false);
+            return;
+          }
+          if (!name) return;
+
+          if (action === "enable") {
+            (state.type === "plugins"
+              ? BetterStremio.Plugins
+              : BetterStremio.Themes).enable(name);
+            render();
+            return;
+          }
+          if (action === "disable") {
+            (state.type === "plugins"
+              ? BetterStremio.Plugins
+              : BetterStremio.Themes).disable(name);
+            render();
+            return;
+          }
+          if (action === "settings") {
+            entries[name]?.onSettings?.();
+            return;
+          }
+          if (action === "share") {
+            const url = entries[name]?.getShareURL?.() || entries[name]?.getUpdateURL?.();
+            const copied = await copyText(url);
+            BetterStremio.Toasts[copied ? "success" : "warning"](
+              copied ? "Share link copied" : "Could not copy share link",
+              url,
+            );
+            return;
+          }
+          if (action === "update") {
+            await updateEntry(state.type, name);
+            render();
+          }
+        });
+      });
+    };
+
+    BetterStremio.V5UI = {
+      reload: render,
+      onLoad: render,
+    };
+    render();
+  }
+
   BetterStremio.Internal = {
     fetch: (route = "/", async = true) => {
       if (async) {
@@ -211,23 +549,28 @@
       return BetterStremio.Internal;
     },
     reloadUI: () => {
-      BetterStremio.Scopes.betterStremioCtrl?.$state?.reload?.();
-      document.querySelector("#bs-notification-count")?.remove?.();
-      const updateCount =
-        Object.values(BetterStremio.Internal.plugins).filter((p) =>
-          p.bsUpdateAvailable
-        ).length + Object.values(BetterStremio.Internal.themes).filter((t) =>
-          t.bsUpdateAvailable
-        ).length;
+      if (isLegacyShell()) {
+        BetterStremio.Scopes.betterStremioCtrl?.$state?.reload?.();
+        document.querySelector("#bs-notification-count")?.remove?.();
+        const updateCount =
+          Object.values(BetterStremio.Internal.plugins).filter((p) =>
+            p.bsUpdateAvailable
+          ).length + Object.values(BetterStremio.Internal.themes).filter((t) =>
+            t.bsUpdateAvailable
+          ).length;
 
-      if (updateCount > 0) {
-        document.querySelector('[ui-sref="betterstremio"]').insertAdjacentHTML(
-          "beforeend",
-          `<div id="bs-notification-count" style="position: absolute; top: -5px; right: -3px; background-color: #dd2232; color: white; height: 20px; border-radius: 50%; width: 20px; align-items: center; justify-content: center; font-weight: bold; line-height: 1; display: flex; font-size: 11px;">${
-            updateCount > 9 ? "9+" : updateCount
-          }</div>`,
-        );
+        if (updateCount > 0) {
+          document.querySelector('[ui-sref="betterstremio"]')?.insertAdjacentHTML(
+            "beforeend",
+            `<div id="bs-notification-count" style="position: absolute; top: -5px; right: -3px; background-color: #dd2232; color: white; height: 20px; border-radius: 50%; width: 20px; align-items: center; justify-content: center; font-weight: bold; line-height: 1; display: flex; font-size: 11px;">${
+              updateCount > 9 ? "9+" : updateCount
+            }</div>`,
+          );
+        }
+        return;
       }
+
+      BetterStremio.V5UI?.reload?.();
     },
   };
 
@@ -268,6 +611,14 @@
     info.enabledThemes.forEach((theme) =>
       BetterStremio.Themes.enable(theme, false)
     );
+
+    if (!isLegacyShell()) {
+      initV5UI();
+      info.enabledPlugins.forEach((plugin) =>
+        runPluginLifecycle(plugin, "onReady")
+      );
+      return;
+    }
 
     const betterStremioTpl = document.createElement("script");
     betterStremioTpl.id = "betterStremioTpl";
@@ -414,21 +765,13 @@
       });
 
     info.enabledPlugins.forEach((plugin) => {
-      try {
-        info.plugins[plugin].onReady?.();
-      } catch (e) {
-        console.error(
-          `[BetterStremio] Plugin '${plugin}' threw an exception at onReady:`,
-          e,
-        );
-        BetterStremio.errors.push(["onReady", e]);
-      }
+      runPluginLifecycle(plugin, "onReady");
     });
   });
 
   async function checkForUpdates() {
     const updateURL =
-      "https://raw.githubusercontent.com/MateusAquino/BetterStremio/main/BetterStremio.loader.js";
+      "https://raw.githubusercontent.com/Drakz-z/BetterStremioV5/main/BetterStremio.loader.js";
 
     const noCache = "v=" + Date.now();
     const updateURLNoCache = updateURL.includes("?")
@@ -568,23 +911,18 @@
       '[icon="betterstremio-outline"]',
     );
     const filledIcon = document.querySelector('[icon="betterstremio"]');
-    outlineIcon.innerHTML =
-      `<g fill="currentColor"><g transform="scale(5.12,5.12)"><path d="M14,3c-1.64497,0 -3,1.35503 -3,3v15.02539c-4.44462,0.26245 -8,3.96685 -8,8.47461c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683c0,-2.8862 2.18298,-5.22619 5,-5.47656v12.97656c0,1.64497 1.35503,3 3,3h4v5.5c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683v-5.5h8v5.5c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683v-5.5h4c1.64497,0 3,-1.35503 3,-3v-13.02539c4.44461,-0.26245 8,-3.96685 8,-8.47461c0.00582,-0.40562 -0.15288,-0.7963 -0.43991,-1.08296c-0.28703,-0.28666 -0.67792,-0.44486 -1.08353,-0.43852c-0.82766,0.01293 -1.48843,0.69381 -1.47656,1.52148c0,2.8862 -2.18298,5.22619 -5,5.47656v-14.97656c0,-1.64497 -1.35503,-3 -3,-3zM14,5h22c0.56503,0 1,0.43497 1,1v16.25391c-0.02645,0.16103 -0.02645,0.3253 0,0.48633v14.25977c0,0.56503 -0.43497,1 -1,1h-22c-0.56503,0 -1,-0.43497 -1,-1v-14.25391c0.02645,-0.16103 0.02645,-0.3253 0,-0.48633v-16.25977c0,-0.56503 0.43497,-1 1,-1zM17,7c-1.09306,0 -2,0.90694 -2,2v9c0,1.09306 0.90694,2 2,2h16c1.09306,0 2,-0.90694 2,-2v-9c0,-1.09306 -0.90694,-2 -2,-2zM17,9h16v9h-16zM20,11c-0.55228,0 -1,0.44772 -1,1c0,0.55228 0.44772,1 1,1c0.55228,0 1,-0.44772 1,-1c0,-0.55228 -0.44772,-1 -1,-1zM30,11c-0.55228,0 -1,0.44772 -1,1c0,0.55228 0.44772,1 1,1c0.55228,0 1,-0.44772 1,-1c0,-0.55228 -0.44772,-1 -1,-1zM23,14c0,1.105 0.895,2 2,2c1.105,0 2,-0.895 2,-2zM15,22v2h12v-2zM32,22c-0.55228,0 -1,0.44772 -1,1c0,0.55228 0.44772,1 1,1c0.55228,0 1,-0.44772 1,-1c0,-0.55228 -0.44772,-1 -1,-1zM17,26v2h-2v2h2v2h2v-2h2v-2h-2v-2zM29,26l-2,3h4zM34,27c-0.552,0 -1,0.448 -1,1c0,0.552 0.448,1 1,1c0.552,0 1,-0.448 1,-1c0,-0.552 -0.448,-1 -1,-1zM31.5,31c-1.381,0 -2.5,1.119 -2.5,2.5c0,1.381 1.119,2.5 2.5,2.5c1.381,0 2.5,-1.119 2.5,-2.5c0,-1.381 -1.119,-2.5 -2.5,-2.5zM16,34c-0.36064,-0.0051 -0.69608,0.18438 -0.87789,0.49587c-0.18181,0.3115 -0.18181,0.69676 0,1.00825c0.18181,0.3115 0.51725,0.50097 0.87789,0.49587h2c0.36064,0.0051 0.69608,-0.18438 0.87789,-0.49587c0.18181,-0.3115 0.18181,-0.69676 0,-1.00825c-0.18181,-0.3115 -0.51725,-0.50097 -0.87789,-0.49587zM22,34c-0.36064,-0.0051 -0.69608,0.18438 -0.87789,0.49587c-0.18181,0.3115 -0.18181,0.69676 0,1.00825c0.18181,0.3115 0.51725,0.50097 0.87789,0.49587h2c0.36064,0.0051 0.69608,-0.18438 0.87789,-0.49587c0.18181,-0.3115 0.18181,-0.69676 0,-1.00825c-0.18181,-0.3115 -0.51725,-0.50097 -0.87789,-0.49587z"></path></g></g>`;
-    filledIcon.innerHTML =
-      `<g fill="currentColor"><g transform="scale(5.12,5.12)"><path d="M14,4c-1.105,0 -2,0.895 -2,2v15h-0.5c-4.67666,0 -8.5,3.82334 -8.5,8.5c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683c0,-3.05534 2.44466,-5.5 5.5,-5.5h0.5v13c0,1.105 0.895,2 2,2h4v6.5c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683v-6.5h8v6.5c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683v-6.5h4c1.105,0 2,-0.895 2,-2v-13h0.5c0.21371,0.00241 0.42547,-0.04088 0.62109,-0.12695c4.37381,-0.33661 7.87891,-3.91645 7.87891,-8.37305c0.00582,-0.40562 -0.15288,-0.7963 -0.43991,-1.08296c-0.28703,-0.28666 -0.67792,-0.44486 -1.08353,-0.43852c-0.82766,0.01293 -1.48843,0.69381 -1.47656,1.52148c0,3.05534 -2.44466,5.5 -5.5,5.5h-0.5v-15c0,-1.105 -0.895,-2 -2,-2zM17,8h16c0.552,0 1,0.448 1,1v9c0,0.552 -0.448,1 -1,1h-16c-0.552,0 -1,-0.448 -1,-1v-9c0,-0.552 0.448,-1 1,-1zM20,11c-0.55228,0 -1,0.44772 -1,1c0,0.55228 0.44772,1 1,1c0.55228,0 1,-0.44772 1,-1c0,-0.55228 -0.44772,-1 -1,-1zM30,11c-0.55228,0 -1,0.44772 -1,1c0,0.55228 0.44772,1 1,1c0.55228,0 1,-0.44772 1,-1c0,-0.55228 -0.44772,-1 -1,-1zM23,14c0,1.105 0.895,2 2,2c1.105,0 2,-0.895 2,-2zM16,22h11v2h-11zM32,22c0.552,0 1,0.448 1,1c0,0.552 -0.448,1 -1,1c-0.552,0 -1,-0.448 -1,-1c0,-0.552 0.448,-1 1,-1zM18,26h2v2h2v2h-2v2h-2v-2h-2v-2h2zM29,26l2,3h-4zM34,27c0.552,0 1,0.448 1,1c0,0.552 -0.448,1 -1,1c-0.552,0 -1,-0.448 -1,-1c0,-0.552 0.448,-1 1,-1zM31.5,31c1.381,0 2.5,1.119 2.5,2.5c0,1.381 -1.119,2.5 -2.5,2.5c-1.381,0 -2.5,-1.119 -2.5,-2.5c0,-1.381 1.119,-2.5 2.5,-2.5zM17,34h2c0.553,0 1,0.448 1,1c0,0.552 -0.447,1 -1,1h-2c-0.553,0 -1,-0.448 -1,-1c0,-0.552 0.447,-1 1,-1zM23,34h2c0.553,0 1,0.448 1,1c0,0.552 -0.447,1 -1,1h-2c-0.553,0 -1,-0.448 -1,-1c0,-0.552 0.447,-1 1,-1z"></path></g></g>`;
-    outlineIcon.setAttribute("viewBox", "0 0 256 256");
-    filledIcon.setAttribute("viewBox", "0 0 256 256");
+    if (outlineIcon && filledIcon) {
+      outlineIcon.innerHTML =
+        `<g fill="currentColor"><g transform="scale(5.12,5.12)"><path d="M14,3c-1.64497,0 -3,1.35503 -3,3v15.02539c-4.44462,0.26245 -8,3.96685 -8,8.47461c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683c0,-2.8862 2.18298,-5.22619 5,-5.47656v12.97656c0,1.64497 1.35503,3 3,3h4v5.5c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683v-5.5h8v5.5c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683v-5.5h4c1.64497,0 3,-1.35503 3,-3v-13.02539c4.44461,-0.26245 8,-3.96685 8,-8.47461c0.00582,-0.40562 -0.15288,-0.7963 -0.43991,-1.08296c-0.28703,-0.28666 -0.67792,-0.44486 -1.08353,-0.43852c-0.82766,0.01293 -1.48843,0.69381 -1.47656,1.52148c0,2.8862 -2.18298,5.22619 -5,5.47656v-14.97656c0,-1.64497 -1.35503,-3 -3,-3zM14,5h22c0.56503,0 1,0.43497 1,1v16.25391c-0.02645,0.16103 -0.02645,0.3253 0,0.48633v14.25977c0,0.56503 -0.43497,1 -1,1h-22c-0.56503,0 -1,-0.43497 -1,-1v-14.25391c0.02645,-0.16103 0.02645,-0.3253 0,-0.48633v-16.25977c0,-0.56503 0.43497,-1 1,-1zM17,7c-1.09306,0 -2,0.90694 -2,2v9c0,1.09306 0.90694,2 2,2h16c1.09306,0 2,-0.90694 2,-2v-9c0,-1.09306 -0.90694,-2 -2,-2zM17,9h16v9h-16zM20,11c-0.55228,0 -1,0.44772 -1,1c0,0.55228 0.44772,1 1,1c0.55228,0 1,-0.44772 1,-1c0,-0.55228 -0.44772,-1 -1,-1zM30,11c-0.55228,0 -1,0.44772 -1,1c0,0.55228 0.44772,1 1,1c0.55228,0 1,-0.44772 1,-1c0,-0.55228 -0.44772,-1 -1,-1zM23,14c0,1.105 0.895,2 2,2c1.105,0 2,-0.895 2,-2zM15,22v2h12v-2zM32,22c-0.55228,0 -1,0.44772 -1,1c0,0.55228 0.44772,1 1,1c0.55228,0 1,-0.44772 1,-1c0,-0.55228 -0.44772,-1 -1,-1zM17,26v2h-2v2h2v2h2v-2h2v-2h-2v-2zM29,26l-2,3h4zM34,27c-0.552,0 -1,0.448 -1,1c0,0.552 0.448,1 1,1c0.552,0 1,-0.448 1,-1c0,-0.552 -0.448,-1 -1,-1zM31.5,31c-1.381,0 -2.5,1.119 -2.5,2.5c0,1.381 1.119,2.5 2.5,2.5c1.381,0 2.5,-1.119 2.5,-2.5c0,-1.381 -1.119,-2.5 -2.5,-2.5zM16,34c-0.36064,-0.0051 -0.69608,0.18438 -0.87789,0.49587c-0.18181,0.3115 -0.18181,0.69676 0,1.00825c0.18181,0.3115 0.51725,0.50097 0.87789,0.49587h2c0.36064,0.0051 0.69608,-0.18438 0.87789,-0.49587c0.18181,-0.3115 0.18181,-0.69676 0,-1.00825c-0.18181,-0.3115 -0.51725,-0.50097 -0.87789,-0.49587zM22,34c-0.36064,-0.0051 -0.69608,0.18438 -0.87789,0.49587c-0.18181,0.3115 -0.18181,0.69676 0,1.00825c0.18181,0.3115 0.51725,0.50097 0.87789,0.49587h2c0.36064,0.0051 0.69608,-0.18438 0.87789,-0.49587c0.18181,-0.3115 0.18181,-0.69676 0,-1.00825c-0.18181,-0.3115 -0.51725,-0.50097 -0.87789,-0.49587z"></path></g></g>`;
+      filledIcon.innerHTML =
+        `<g fill="currentColor"><g transform="scale(5.12,5.12)"><path d="M14,4c-1.105,0 -2,0.895 -2,2v15h-0.5c-4.67666,0 -8.5,3.82334 -8.5,8.5c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683c0,-3.05534 2.44466,-5.5 5.5,-5.5h0.5v13c0,1.105 0.895,2 2,2h4v6.5c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683v-6.5h8v6.5c-0.00765,0.54095 0.27656,1.04412 0.74381,1.31683c0.46725,0.27271 1.04514,0.27271 1.51238,0c0.46725,-0.27271 0.75146,-0.77588 0.74381,-1.31683v-6.5h4c1.105,0 2,-0.895 2,-2v-13h0.5c0.21371,0.00241 0.42547,-0.04088 0.62109,-0.12695c4.37381,-0.33661 7.87891,-3.91645 7.87891,-8.37305c0.00582,-0.40562 -0.15288,-0.7963 -0.43991,-1.08296c-0.28703,-0.28666 -0.67792,-0.44486 -1.08353,-0.43852c-0.82766,0.01293 -1.48843,0.69381 -1.47656,1.52148c0,3.05534 -2.44466,5.5 -5.5,5.5h-0.5v-15c0,-1.105 -0.895,-2 -2,-2zM17,8h16c0.552,0 1,0.448 1,1v9c0,0.552 -0.448,1 -1,1h-16c-0.552,0 -1,-0.448 -1,-1v-9c0,-0.552 0.448,-1 1,-1zM20,11c-0.55228,0 -1,0.44772 -1,1c0,0.55228 0.44772,1 1,1c0.55228,0 1,-0.44772 1,-1c0,-0.55228 -0.44772,-1 -1,-1zM30,11c-0.55228,0 -1,0.44772 -1,1c0,0.55228 0.44772,1 1,1c0.55228,0 1,-0.44772 1,-1c0,-0.55228 -0.44772,-1 -1,-1zM23,14c0,1.105 0.895,2 2,2c1.105,0 2,-0.895 2,-2zM16,22h11v2h-11zM32,22c0.552,0 1,0.448 1,1c0,0.552 -0.448,1 -1,1c-0.552,0 -1,-0.448 -1,-1c0,-0.552 0.448,-1 1,-1zM18,26h2v2h2v2h-2v2h-2v-2h-2v-2h2zM29,26l2,3h-4zM34,27c0.552,0 1,0.448 1,1c0,0.552 -0.448,1 -1,1c-0.552,0 -1,-0.448 -1,-1c0,-0.552 0.448,-1 1,-1zM31.5,31c1.381,0 2.5,1.119 2.5,2.5c0,1.381 -1.119,2.5 -2.5,2.5c-1.381,0 -2.5,-1.119 -2.5,-2.5c0,-1.381 1.119,-2.5 2.5,-2.5zM17,34h2c0.553,0 1,0.448 1,1c0,0.552 -0.447,1 -1,1h-2c-0.553,0 -1,-0.448 -1,-1c0,-0.552 0.447,-1 1,-1zM23,34h2c0.553,0 1,0.448 1,1c0,0.552 -0.447,1 -1,1h-2c-0.553,0 -1,-0.448 -1,-1c0,-0.552 0.447,-1 1,-1z"></path></g></g>`;
+      outlineIcon.setAttribute("viewBox", "0 0 256 256");
+      filledIcon.setAttribute("viewBox", "0 0 256 256");
+    }
 
     info.enabledPlugins.forEach((plugin) => {
-      try {
-        info.plugins[plugin].onLoad?.();
-      } catch (e) {
-        console.error(
-          `[BetterStremio] Plugin '${plugin}' threw an exception at onLoad:`,
-          e,
-        );
-        BetterStremio.errors.push(["onLoad", e]);
-      }
+      runPluginLifecycle(plugin, "onLoad");
     });
+    BetterStremio.V5UI?.onLoad?.();
   };
 })();

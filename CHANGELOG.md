@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-04-23
+
+### Added
+
+- Improved Windows shortcut repair so the installer also fixes or recreates the standard `Stremio.lnk` entries used by Stremio v5.
+- Bundled a forked WatchParty plugin path so the optional installer download can pull from this repository directly.
+
+### Changed
+
+- Updated BetterStremio self-update and documentation links to point to `Drakz-z/BetterStremioV5`.
+
 ## [1.0.5] - 2024-01-05
 
 ### Added
@@ -59,6 +70,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation: CHANGELOG and README.
 - Autoupdate for BetterStremio Loader.
 
-[1.0.0]: https://github.com/MateusAquino/BetterStremio/releases/tag/v1.0.0
-[1.0.1]: https://github.com/MateusAquino/BetterStremio/releases/tag/v1.0.1
-[1.0.2]: https://github.com/MateusAquino/BetterStremio/releases/tag/v1.0.2
+[1.0.0]: https://github.com/Drakz-z/BetterStremioV5/releases/tag/v1.0.0
+[1.0.1]: https://github.com/Drakz-z/BetterStremioV5/releases/tag/v1.0.1
+[1.0.2]: https://github.com/Drakz-z/BetterStremioV5/releases/tag/v1.0.2

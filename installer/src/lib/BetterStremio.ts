@@ -6,21 +6,35 @@ import path from "node:path";
 
 const start = "/* BetterStremio:start */";
 const end = "/* BetterStremio:end */";
+const repoOwner = "Drakz-z";
+const repoName = "BetterStremioV5";
+const repoBranch = "main";
+const rawRepoBase =
+  `https://raw.githubusercontent.com/${repoOwner}/${repoName}/${repoBranch}`;
 
 const urlPatch =
-  "https://raw.githubusercontent.com/MateusAquino/BetterStremio/refs/heads/main/patch.js";
+  `${rawRepoBase}/patch.js`;
 const urlLoader =
-  "https://raw.githubusercontent.com/MateusAquino/BetterStremio/refs/heads/main/BetterStremio.loader.js";
+  `${rawRepoBase}/BetterStremio.loader.js`;
 const urlFont1 =
-  "https://raw.githubusercontent.com/MateusAquino/BetterStremio/refs/heads/main/fonts/icon-full-height.ttf";
+  `${rawRepoBase}/fonts/icon-full-height.ttf`;
 const urlFont2 =
-  "https://raw.githubusercontent.com/MateusAquino/BetterStremio/refs/heads/main/fonts/icon-full-height.woff";
+  `${rawRepoBase}/fonts/icon-full-height.woff`;
 const urlFont3 =
-  "https://raw.githubusercontent.com/MateusAquino/BetterStremio/refs/heads/main/fonts/PlusJakartaSans.ttf";
+  `${rawRepoBase}/fonts/PlusJakartaSans.ttf`;
 const urlWp =
-  "https://raw.githubusercontent.com/MateusAquino/WatchParty/refs/heads/main/WatchParty.plugin.js";
+  `${rawRepoBase}/WatchParty.plugin.js`;
 const urlAmoled =
   "https://raw.githubusercontent.com/REVENGE977/StremioAmoledTheme/refs/heads/main/amoled.theme.css";
+const localWebUI = "http://127.0.0.1:11470";
+const legacyLaunchArgs = " --development --streaming-server";
+const modernLaunchArgs = ` --webui-url=${localWebUI}`;
+const shortcutArgsToRemove = [
+  legacyLaunchArgs,
+  modernLaunchArgs,
+  " --development",
+  " --streaming-server",
+];
 
 const unixAlert = (src: string) =>
   Deno.build.os === "windows"
@@ -36,9 +50,17 @@ async function download(url: string, filename: string) {
 }
 
 export function getDefaultPath() {
-  return Deno.build.os === "windows"
-    ? `${Deno.env.get("LOCALAPPDATA")}\\Programs\\LNV\\Stremio-4\\`
-    : "/opt/stremio/";
+  if (Deno.build.os === "windows") {
+    const localAppData = Deno.env.get("LOCALAPPDATA");
+    const modernPath = `${localAppData}\\Programs\\Stremio\\`;
+    const legacyPath = `${localAppData}\\Programs\\LNV\\Stremio-4\\`;
+
+    if (isValidStremioPath(modernPath)) return modernPath;
+    if (isValidStremioPath(legacyPath)) return legacyPath;
+    return modernPath;
+  }
+
+  return "/opt/stremio/";
 }
 
 export function getBetterStremioPath(stremioPath: string) {
@@ -46,6 +68,77 @@ export function getBetterStremioPath(stremioPath: string) {
     return path.join(stremioPath, "BetterStremio");
   }
   return path.join(Deno.env.get("HOME")!, ".config", "BetterStremio");
+}
+
+function getExecutableNames(stremioPath: string) {
+  const executableNames = ["stremio.exe"];
+  if (Deno.build.os === "windows") {
+    if (exists(path.join(stremioPath, "stremio-shell-ng.exe"))) {
+      executableNames.unshift("stremio-shell-ng.exe");
+    }
+  }
+  return executableNames;
+}
+
+function getLaunchArgs(stremioPath: string) {
+  return getExecutableNames(stremioPath).includes("stremio-shell-ng.exe")
+    ? modernLaunchArgs
+    : legacyLaunchArgs;
+}
+
+function getPrimaryExecutablePath(stremioPath: string) {
+  return path.join(stremioPath, getExecutableNames(stremioPath)[0]);
+}
+
+function getExecutablePaths(stremioPath: string) {
+  return getExecutableNames(stremioPath).map((name) => path.join(stremioPath, name));
+}
+
+function getWindowsKnownShortcutPaths() {
+  const appData = Deno.env.get("APPDATA");
+  const programData = Deno.env.get("PROGRAMDATA");
+  const userProfile = Deno.env.get("USERPROFILE");
+  const publicProfile = Deno.env.get("PUBLIC");
+
+  return [
+    appData
+      ? path.join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Stremio.lnk")
+      : "",
+    programData
+      ? path.join(programData, "Microsoft", "Windows", "Start Menu", "Programs", "Stremio.lnk")
+      : "",
+    userProfile ? path.join(userProfile, "Desktop", "Stremio.lnk") : "",
+    publicProfile ? path.join(publicProfile, "Desktop", "Stremio.lnk") : "",
+    appData
+      ? path.join(
+        appData,
+        "Microsoft",
+        "Internet Explorer",
+        "Quick Launch",
+        "User Pinned",
+        "TaskBar",
+        "Stremio.lnk",
+      )
+      : "",
+  ].filter(Boolean);
+}
+
+function exists(targetPath: string) {
+  try {
+    Deno.statSync(targetPath);
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
+
+export function isValidStremioPath(stremioPath: string) {
+  if (!exists(stremioPath)) return false;
+
+  const serverJs = path.join(stremioPath, "server.js");
+  const executableNames = getExecutableNames(stremioPath);
+  return exists(serverJs) ||
+    executableNames.some((name) => exists(path.join(stremioPath, name)));
 }
 
 export async function installExtra(
@@ -79,6 +172,9 @@ export async function patch(event: WebUIEvent, stremioPath: string) {
   }
 
   const serverJs = path.join(stremioPath, "server.js");
+  if (!exists(serverJs)) {
+    return "This Stremio installation does not expose a patchable server.js file, so BetterStremio cannot hook into it.";
+  }
   const contents = Deno.readTextFileSync(serverJs);
 
   try {
@@ -101,111 +197,120 @@ function updateShortcuts(
   event: WebUIEvent,
   stremioPath: string,
   addArgs: string,
-  removeArgs: string,
+  removeArgs: string[],
 ) {
   if (Deno.build.os === "windows") {
     event.window.run(
       "setStatus('Scanning for existing Stremio shortcuts (this may take a while)...')",
     );
-    const desktop = new Deno.Command("powershell", {
+    const psAddArgs = addArgs.replaceAll("'", "''");
+    const psPrimaryExecutable = getPrimaryExecutablePath(stremioPath).replaceAll("'", "''");
+    const psWorkingDirectory = stremioPath.replaceAll("'", "''");
+    const psExecutableNames = getExecutableNames(stremioPath)
+      .map((name) => `'${name.replaceAll("'", "''")}'`)
+      .join(", ");
+    const psExecutablePaths = getExecutablePaths(stremioPath)
+      .map((targetPath) => `'${targetPath.replaceAll("'", "''")}'`)
+      .join(", ");
+    const psKnownShortcutPaths = getWindowsKnownShortcutPaths()
+      .map((targetPath) => `'${targetPath.replaceAll("'", "''")}'`)
+      .join(", ");
+    const psRemoveArgs = removeArgs
+      .map((arg) => `'${arg.replaceAll("'", "''")}'`)
+      .join(", ");
+    const shortcutCmd = new Deno.Command("powershell", {
       args: [
         "-c",
-        "[Environment]::GetFolderPath([Environment+SpecialFolder]::Desktop)",
+        `[void][Reflection.Assembly]::LoadWithPartialName('IWshRuntimeLibrary') | Out-Null
+$shell = New-Object -ComObject WScript.Shell
+$execNames = @(${psExecutableNames})
+$execTargets = @(${psExecutablePaths})
+$removeArgs = @(${psRemoveArgs})
+$knownShortcutPaths = @(${psKnownShortcutPaths}) | Where-Object { $_ }
+$addArg = '${psAddArgs}'
+$primaryExecutable = '${psPrimaryExecutable}'
+$workingDirectory = '${psWorkingDirectory}'
+$roots = @(
+  [Environment]::GetFolderPath([Environment+SpecialFolder]::Desktop),
+  "$env:PROGRAMDATA\\Microsoft",
+  "$env:APPDATA\\Microsoft",
+  "$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar"
+) | Select-Object -Unique
+$shortcuts = [System.Collections.Generic.List[string]]::new()
+foreach ($shortcutPath in $knownShortcutPaths) {
+  if (Test-Path $shortcutPath) {
+    $shortcuts.Add($shortcutPath)
+  }
+}
+foreach ($root in $roots) {
+  if (Test-Path $root) {
+    Get-ChildItem -Recurse -Path $root -Filter '*.lnk' -ErrorAction SilentlyContinue | ForEach-Object {
+      $shortcut = $shell.CreateShortcut($_.FullName)
+      $targetName = [System.IO.Path]::GetFileName($shortcut.TargetPath)
+      if ($targetName -and $execNames -contains $targetName) {
+        $shortcuts.Add($_.FullName)
+      }
+    }
+  }
+}
+$shortcuts = $shortcuts | Sort-Object -Unique
+if ($addArg -and -not $shortcuts.Count -and $knownShortcutPaths.Count) {
+  $preferredShortcutPath = $knownShortcutPaths[0]
+  $preferredShortcutDir = Split-Path -Parent $preferredShortcutPath
+  if ($preferredShortcutDir) {
+    New-Item -ItemType Directory -Force -Path $preferredShortcutDir | Out-Null
+  }
+  $shortcut = $shell.CreateShortcut($preferredShortcutPath)
+  $shortcut.TargetPath = $primaryExecutable
+  $shortcut.WorkingDirectory = $workingDirectory
+  $shortcut.IconLocation = "\${primaryExecutable},0"
+  $shortcut.Arguments = ''
+  $shortcut.Save()
+  $shortcuts = @($preferredShortcutPath)
+}
+foreach ($shortcutPath in $shortcuts) {
+  $shortcut = $shell.CreateShortcut($shortcutPath)
+  $isKnownShortcut = $knownShortcutPaths -contains $shortcutPath
+  $targetPath = $shortcut.TargetPath
+  $targetName = [System.IO.Path]::GetFileName($targetPath)
+  $isStremioShortcut = $targetName -and $execNames -contains $targetName
+  if (-not $isKnownShortcut -and -not $isStremioShortcut) {
+    continue
+  }
+  if ($addArg -and $isKnownShortcut) {
+    if (-not $targetPath -or -not (Test-Path $targetPath) -or -not ($execTargets -contains $targetPath)) {
+      $shortcut.TargetPath = $primaryExecutable
+    }
+    $shortcut.WorkingDirectory = $workingDirectory
+    if (-not $shortcut.IconLocation) {
+      $shortcut.IconLocation = "\${primaryExecutable},0"
+    }
+  }
+  if ($null -eq $shortcut.Arguments) {
+    $shortcut.Arguments = ''
+  }
+  foreach ($pattern in $removeArgs) {
+    $shortcut.Arguments = $shortcut.Arguments.Replace($pattern, '')
+  }
+  if ($addArg -and $shortcut.Arguments -notlike "*$addArg*") {
+    $shortcut.Arguments += $addArg
+  }
+  $shortcut.Save()
+}
+$shortcuts`,
       ],
     });
-
-    const desktopPath = new TextDecoder()
-      .decode(desktop.outputSync().stdout)
-      .trim();
-
-    const desktopShortcuts = new Deno.Command("powershell", {
-      args: [
-        "-c",
-        `Get-ChildItem -Recurse -Path "${desktopPath}" -Filter "*.lnk" | ForEach-Object {
-      $file = $_.FullName
-        if (Select-String -Path $file -Pattern "stremio.exe") {
-          Write-Output $file
-        }
-      }`,
-      ],
-    });
-
-    const desktopShortcutsResult = new TextDecoder().decode(
-      desktopShortcuts.outputSync().stdout,
-    );
-
-    const ProgramDataShortcuts = new Deno.Command("powershell", {
-      args: [
-        "-c",
-        `Get-ChildItem -Recurse -Path "$env:PROGRAMDATA\\Microsoft" -Filter "*.lnk" | ForEach-Object {
-      $file = $_.FullName
-        if (Select-String -Path $file -Pattern "stremio.exe") {
-          Write-Output $file
-        }
-      }`,
-      ],
-    });
-    const ProgramDataShortcutsResult = new TextDecoder().decode(
-      ProgramDataShortcuts.outputSync().stdout,
-    );
-
-    const TaskBarShortcuts = new Deno.Command("powershell", {
-      args: [
-        "-c",
-        `Get-ChildItem -Recurse -Path "$env:APPDATA\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\Taskbar" -Filter "*.lnk" | ForEach-Object {
-      $file = $_.FullName
-        if (Select-String -Path $file -Pattern "stremio.exe") {
-          Write-Output $file
-        }
-      }`,
-      ],
-    });
-    const TaskBarShortcutsResult = new TextDecoder().decode(
-      TaskBarShortcuts.outputSync().stdout,
-    );
-
-    const AppDataShortcuts = new Deno.Command("powershell", {
-      args: [
-        "-c",
-        `Get-ChildItem -Recurse -Path "$env:APPDATA\\Microsoft" -Filter "*.lnk" | ForEach-Object {
-      $file = $_.FullName
-        if (Select-String -Path $file -Pattern "stremio.exe") {
-          Write-Output $file
-        }
-      }`,
-      ],
-    });
-    const AppDataShortcutsResult = new TextDecoder().decode(
-      AppDataShortcuts.outputSync().stdout,
-    );
-
-    const shortcuts = [
-      desktopShortcutsResult,
-      ProgramDataShortcutsResult,
-      AppDataShortcutsResult,
-      TaskBarShortcutsResult,
-    ]
-      .join("")
+    const shortcuts = new TextDecoder()
+      .decode(shortcutCmd.outputSync().stdout)
       .trim()
-      .split("\n");
+      .split("\n")
+      .filter(Boolean);
 
     event.window.run(
       "setStatus('Found " + shortcuts.length +
         " shortcuts, updating cmd args (this may take a while)...')",
     );
     console.log("Shortcuts found", shortcuts);
-    for (const shortcut of shortcuts) {
-      console.log("Updating shortcut", shortcut);
-      const shortcutPath = shortcut.trim();
-      if (shortcutPath === "") continue;
-      const cmd = new Deno.Command("powershell", {
-        args: [
-          "-c",
-          `[void][Reflection.Assembly]::LoadWithPartialName('IWshRuntimeLibrary');$shell = New-Object -ComObject WScript.Shell;$shortcut = $shell.CreateShortcut('${shortcutPath}');$shortcut.Arguments = $shortcut.Arguments -replace '${removeArgs}', '';if ($shortcut.Arguments -notmatch '${addArgs}') {$shortcut.Arguments += '${addArgs}'};$shortcut.Save()`,
-        ],
-      });
-      cmd.outputSync();
-    }
   } else {
     event.window.run(
       "setStatus('Updating smartcode-stremio.desktop shortcut...')",
@@ -213,8 +318,10 @@ function updateShortcuts(
     const desktopApp = path.join(stremioPath, "smartcode-stremio.desktop");
     const desktopAppContents = Deno.readTextFileSync(desktopApp);
     const rgx = /Exec=(?!.*--development --streaming-server.*).*/;
-    const updatedDesktopAppContents = desktopAppContents
-      .replace(removeArgs, "")
+    const updatedDesktopAppContents = removeArgs.reduce(
+      (contents, value) => contents.replace(value, ""),
+      desktopAppContents,
+    )
       .replace(rgx, `$&${addArgs}`);
     Deno.writeTextFileSync(desktopApp, updatedDesktopAppContents);
   }
@@ -282,8 +389,8 @@ export async function install(
     updateShortcuts(
       event,
       stremioPath,
-      " --development --streaming-server",
-      "",
+      getLaunchArgs(stremioPath),
+      shortcutArgsToRemove,
     );
   } catch (e) {
     console.error(e);
@@ -316,6 +423,9 @@ export async function uninstall(
   shouldUpdateShortcuts = true,
 ) {
   const serverJs = path.join(stremioPath, "server.js");
+  if (!exists(serverJs)) {
+    return true;
+  }
   let contents;
   try {
     contents = Deno.readTextFileSync(serverJs);
@@ -352,7 +462,7 @@ export async function uninstall(
         event,
         stremioPath,
         "",
-        " --development --streaming-server",
+        shortcutArgsToRemove,
       );
     }
   } catch (e) {
@@ -369,10 +479,17 @@ export async function uninstall(
 
 export function killStremio() {
   if (Deno.build.os === "windows") {
-    const cmd = new Deno.Command("taskkill", {
-      args: ["/F", "/IM", "stremio.exe"],
-    });
-    return cmd.outputSync();
+    const commands = [
+      ["stremio-shell-ng.exe"],
+      ["stremio.exe"],
+      ["stremio-runtime.exe"],
+      ["stremio-service.exe"],
+    ].map((processName) =>
+      new Deno.Command("taskkill", {
+        args: ["/F", "/IM", ...processName],
+      }).outputSync()
+    );
+    return commands[0];
   } else {
     const cmd = new Deno.Command("pkill", { args: ["-f", "stremio"] });
     return cmd.outputSync();

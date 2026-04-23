@@ -7,31 +7,31 @@
 
 ## 💡 How it works
 
-**BetterStremio** patches the `server.js` file to inject code in the local development web server hosted at `127.0.0.1:11470` and adds a loader script to run external plugins and CSS themes. There is no need to download external custom Stremio executables! :)
+**BetterStremio** patches the `server.js` file to inject code in the local Stremio web server hosted at `127.0.0.1:11470` and adds a loader script to run external plugins and CSS themes. There is no need to download external custom Stremio executables! :)
 
 
-![image](https://github.com/MateusAquino/BetterStremio/assets/16140783/1d721c4f-6493-4ed7-bb6c-ddc804b88630)
+![image](https://github.com/Drakz-z/BetterStremioV5/assets/16140783/1d721c4f-6493-4ed7-bb6c-ddc804b88630)
 
 ## 🚀 Getting Started
 
 <p align="left">
-  <a target="_blank" href="https://github.com/MateusAquino/BetterStremio">
+  <a target="_blank" href="https://github.com/Drakz-z/BetterStremioV5">
     <img width="450px" alt="Installer" title="Installer" align="right" src="https://github.com/user-attachments/assets/ff9248ca-2b17-439b-88a2-d28f1c2d9972"></img>
   </a>
 </p>
 
-Download and run the installer from the [releases page](https://github.com/MateusAquino/BetterStremio/releases/). You can also choose the "Uninstall" option to unpatch changes made to Stremio's server.js file and all modified shortcuts.
+Download and run the installer from the [releases page](https://github.com/Drakz-z/BetterStremioV5/releases/). You can also choose the "Uninstall" option to unpatch changes made to Stremio's server.js file and all modified shortcuts.
 
 > [!TIP]
-> The original stremio server can still be used when opening `stremio.exe`. For BetterStremio to work it **must** be opened though the shotcut.
+> BetterStremio still works through a patched shortcut. On Stremio v5 the launcher uses `--webui-url=http://127.0.0.1:11470`, while older Stremio v4 builds still use `--development --streaming-server`.
 
 
-For **Linux users**, it is required to run Stremio manually with the flags: `--development --streaming-server`, please add it to your shortcuts.  
+For **Linux users**, use the startup flags that match your Stremio version: `--webui-url=http://127.0.0.1:11470` for v5, or `--development --streaming-server` for older v4 builds.  
 Arch Linux was the only distro verified, please contribute to support your own distro.  
 
 If you want to install it manually, or build the installer locally, please check out the Contribute section for more information about how the patching works.
 
-Demo Plugin: https://github.com/MateusAquino/WatchParty  
+Demo Plugin: https://github.com/Drakz-z/BetterStremioV5/blob/main/WatchParty.plugin.js  
 Demo Theme: https://github.com/REVENGE977/StremioAmoledTheme
 
 ## 👾 Developing Plugins & Themes
@@ -116,7 +116,7 @@ stremioApp.run([/* libs... */, function (/* callback modules */) => {
 
 For further information, see examples of `BetterStremio.loader.js` or dive into `blob.js` on Developer Tools to make use of the source code, eg:
 
-![Stremio blob.js from Network Page](https://github.com/MateusAquino/BetterStremio/assets/16140783/3e957108-2c73-452f-b9f4-f9a983a80627)
+![Stremio blob.js from Network Page](https://github.com/Drakz-z/BetterStremioV5/assets/16140783/3e957108-2c73-452f-b9f4-f9a983a80627)
 
 
 
@@ -142,8 +142,8 @@ This repository is currently available for contributions. If you'd like to help,
    - `GET /betterstremio/changelog`: Open BetterStremio's changelog on the browser.
    - `GET /betterstremio/src/:path`: Static sharing of files on BetterStremio's folder.
    - `POST /betterstremio/update/:path?from=URL`: Replaces a file on BetterStremio's folder with the raw content read from the URL for updates.
-   - `GET /`: Patched Stremio version, it read contents from "app.strem.io/shell-v4.4" as usual but injects BetterStremio's loader.
-2. Patching means to insert these routes into `server.js` and create shortcuts with two arguments for Stremio: `--development --streaming-server` (see: [stremio/stremio-shell](https://github.com/stremio/stremio-shell))
+   - `GET /`: Patched Stremio version, it proxies the configured Stremio Web UI and injects BetterStremio's loader before returning the page.
+2. Patching means to insert these routes into `server.js` and update Stremio shortcuts so they load the local UI entrypoint. On v5 this uses `--webui-url=http://127.0.0.1:11470`; on older v4 builds it still uses `--development --streaming-server` (see: [stremio/stremio-shell](https://github.com/stremio/stremio-shell) and [Stremio/stremio-shell-ng](https://github.com/Stremio/stremio-shell-ng))
 3. BetterStremio loader will automatically update itself on next load (or past 24h) when **BetterStremio.version** is changed in this repository.
 4. If you want to ❤️ contribute to develop plugins & themes, note you can run stremio locally in your browser @ `http://localhost:11470` to access Developer Tools.
 5. If you want to ❤️ contribute to BetterStremio and its installer, clone this repository and run:

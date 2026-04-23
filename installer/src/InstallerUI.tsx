@@ -73,7 +73,7 @@ export default function InstallerUI() {
                   {result.type === "install" ? "patched" : "unpatched"}. If you
                   have any issues, please report them on{" "}
                   <a
-                    href="https://github.com/MateusAquino/BetterStremio/issues"
+                    href="https://github.com/Drakz-z/BetterStremioV5/issues"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-purple-300"
@@ -117,7 +117,7 @@ export default function InstallerUI() {
                   If you are unable to resolve the issue, please seek help on
                   {" "}
                   <a
-                    href="https://github.com/MateusAquino/BetterStremio/issues"
+                    href="https://github.com/Drakz-z/BetterStremioV5/issues"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-purple-300"
@@ -176,7 +176,7 @@ export default function InstallerUI() {
                   <div className="relative">
                     <div className="flex items-center space-x-4">
                       <img
-                        src="https://github.com/MateusAquino/BetterStremio/raw/main/logo.png"
+                        src="https://github.com/Drakz-z/BetterStremioV5/raw/main/logo.png"
                         width={90}
                         height={90}
                         alt="BetterStremio Logo"
@@ -198,7 +198,7 @@ export default function InstallerUI() {
                 <Clapperboard className="w-6 h-6 text-purple-300" />
                 <a
                   className="text-purple-300 hover:underline font-medium"
-                  href="https://github.com/MateusAquino/BetterStremio"
+                  href="https://github.com/Drakz-z/BetterStremioV5"
                   target="_blank"
                   rel="noopener noreferrer"
                   title="BetterStremio GitHub Repository"
@@ -252,32 +252,32 @@ export default function InstallerUI() {
                 {
                   title: "Documentation",
                   url:
-                    "https://github.com/MateusAquino/BetterStremio/blob/main/README.md#-developing-plugins--themes",
+                    "https://github.com/Drakz-z/BetterStremioV5/blob/main/README.md#-developing-plugins--themes",
                   description:
                     "Guides and references for Plugins and Themes developers",
                 },
                 {
                   title: "GitHub Repository",
-                  url: "https://github.com/MateusAquino/BetterStremio",
+                  url: "https://github.com/Drakz-z/BetterStremioV5",
                   description:
                     "Access or contribute to the BetterStremio source code and installer",
                 },
                 {
                   title: "Support",
-                  url: "https://github.com/MateusAquino/BetterStremio/issues",
+                  url: "https://github.com/Drakz-z/BetterStremioV5/issues",
                   description:
                     "Get help from our community, report issues or request features",
                 },
                 {
                   title: "Installer Releases",
-                  url: "https://github.com/MateusAquino/BetterStremio/releases",
+                  url: "https://github.com/Drakz-z/BetterStremioV5/releases",
                   description:
                     "Once installed, BetterStremio is auto-updated to the latest version, but you can still view all previous installer releases here",
                 },
                 {
                   title: "Changelog",
                   url:
-                    "https://github.com/MateusAquino/BetterStremio/blob/main/CHANGELOG.md",
+                    "https://github.com/Drakz-z/BetterStremioV5/blob/main/CHANGELOG.md",
                   description:
                     "See what's new in the latest BetterStremio version",
                 },
@@ -331,7 +331,7 @@ export default function InstallerUI() {
                             <br />
                             <br />
                             default (win):{" "}
-                            <code>%localAppData%\Programs\LNV\Stremio-4\</code>
+                            <code>%localAppData%\Programs\Stremio\</code>
                             <br />
                             default (unix): <code>/opt/stremio/</code>
                           </p>
@@ -368,7 +368,7 @@ export default function InstallerUI() {
                     Install{" "}
                     <a
                       className="text-purple-300"
-                      href="https://github.com/MateusAquino/WatchParty"
+                      href="https://github.com/Drakz-z/BetterStremioV5/blob/main/WatchParty.plugin.js"
                       target="_blank"
                     >
                       WatchParty

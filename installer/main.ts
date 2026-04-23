@@ -42,12 +42,7 @@ installer.bind("validatePath", (event) => {
   try {
     const fileInfo = Deno.lstatSync(path);
     if (!fileInfo.isDirectory) return false;
-    const files = Deno.readDirSync(path);
-    for (const file of files) {
-      if (file.isFile && file.name === "server.js") {
-        return true;
-      }
-    }
+    return BetterStremio.isValidStremioPath(path);
   } catch (_e) {
     // ignore error
   }
