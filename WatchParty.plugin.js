@@ -5,7 +5,7 @@ module.exports = class WatchParty {
     "https://raw.githubusercontent.com/Drakz-z/BetterStremioV5/main/WatchParty.logo.png";
   getDescription = () =>
     "Start a Stremio session with friends: watch party, chat and share controls (no addon sharing required). Make sure to play high availability movies/series to avoid buffering issues.";
-  getVersion = () => "1.2.1";
+  getVersion = () => "1.2.2";
   getAuthor = () => "Drakz-z";
   getShareURL = () => "https://github.com/Drakz-z/BetterStremioV5";
   getUpdateURL = () =>
@@ -39,9 +39,18 @@ module.exports = class WatchParty {
     if (!WatchParty) return;
     clearInterval(WatchParty.playerObserver);
     clearInterval(WatchParty.chatObserver);
+    clearTimeout(WatchParty.idleTimer);
+    if (WatchParty.resetIdleTimer) {
+        document.removeEventListener("mousemove", WatchParty.resetIdleTimer);
+        document.removeEventListener("mousedown", WatchParty.resetIdleTimer);
+        document.removeEventListener("keydown", WatchParty.resetIdleTimer);
+    }
     document.removeEventListener("click", WatchParty.outsideClickListener);
     window.removeEventListener("hashchange", WatchParty.hashChangeListener);
     WatchParty.openUI(false);
+    document.getElementById("wp-control")?.remove();
+    document.getElementById("wp-popup")?.remove();
+    document.getElementById("wp-chat-container")?.remove();
 
     if (BetterStremio.Modules?.$state?.go?.wpInjected) {
       BetterStremio.Modules.$state.go.wpInjected = false;
@@ -73,6 +82,9 @@ module.exports = class WatchParty {
   }
 
   onLoad() {
+    document.getElementById("wp-control")?.remove();
+    document.getElementById("wp-popup")?.remove();
+    document.getElementById("wp-chat-container")?.remove();
     const windowControls = document.getElementById("window-controls");
     const WatchPartyControl = document.createElement(
       windowControls ? "li" : "div",
@@ -138,6 +150,7 @@ module.exports = class WatchParty {
       onTimeUpdate: this.onTimeUpdate,
       onError: this.onError,
     };
+    window.WatchParty.isIdle = false;
     WatchParty.chatObserver = setInterval(() => {
       const hideChat =
         document.querySelector('[ui-view="detail"]:not(.ng-hide)') ||
@@ -145,9 +158,35 @@ module.exports = class WatchParty {
         (WatchParty.isV5() &&
           (document.querySelector('[role="dialog"]') ||
             document.querySelector('[data-modal="true"]')));
-      document.getElementById("wp-chat").style.pointerEvents = hideChat
-        ? "none"
-        : "auto";
+      const container = document.getElementById("wp-chat-container");
+      if (container) {
+        if (!window.WatchParty.client) {
+            container.style.display = "none";
+            return;
+        } else {
+            container.style.display = "flex";
+        }
+        
+        const chat = document.getElementById("wp-chat");
+        const isChatOpen = chat && chat.style.display !== "none";
+        const rect = container.getBoundingClientRect();
+        const isHovered = window.WatchParty.mouseX >= rect.left && window.WatchParty.mouseX <= rect.right &&
+                          window.WatchParty.mouseY >= rect.top && window.WatchParty.mouseY <= rect.bottom;
+        
+        let shouldShow = false;
+        if (isChatOpen) {
+            shouldShow = isHovered;
+        } else {
+            shouldShow = !WatchParty.isIdle || isHovered;
+        }
+        
+        if (hideChat) shouldShow = false;
+        
+        container.style.opacity = shouldShow ? "1" : "0";
+        const toggle = document.getElementById("wp-chat-toggle");
+        if (toggle) toggle.style.pointerEvents = shouldShow ? "auto" : "none";
+        if (chat) chat.style.pointerEvents = shouldShow ? "auto" : "none";
+      }
     }, 400);
     WatchParty.playerObserverPaused = null;
     WatchParty.playerObserverSpeed = null;
@@ -227,12 +266,44 @@ module.exports = class WatchParty {
     document.addEventListener("click", WatchParty.outsideClickListener);
 
     document.body.insertAdjacentHTML("afterbegin", this.chat());
+    
+    window.WatchParty.toggleChat = () => {
+        const chat = document.getElementById("wp-chat");
+        if (chat) chat.style.display = chat.style.display === "none" ? "flex" : "none";
+    };
+
+    window.WatchParty.mouseX = 0;
+    window.WatchParty.mouseY = 0;
+    WatchParty.resetIdleTimer = (e) => {
+        if (e && e.type === "mousemove") {
+            window.WatchParty.mouseX = e.clientX;
+            window.WatchParty.mouseY = e.clientY;
+            if (e.movementX === 0 && e.movementY === 0) return;
+        }
+        WatchParty.isIdle = false;
+        clearTimeout(WatchParty.idleTimer);
+        const container = document.getElementById("wp-chat-container");
+        const rect = container ? container.getBoundingClientRect() : null;
+        const isHovered = rect && window.WatchParty.mouseX >= rect.left && window.WatchParty.mouseX <= rect.right &&
+                          window.WatchParty.mouseY >= rect.top && window.WatchParty.mouseY <= rect.bottom;
+        if (isHovered) {
+            WatchParty.idleTimer = setTimeout(WatchParty.resetIdleTimer, 3500);
+        } else {
+            WatchParty.idleTimer = setTimeout(() => {
+                WatchParty.isIdle = true;
+            }, 3500); // 3.5s matches Stremio's typical idle timeout
+        }
+    };
+    document.addEventListener("mousemove", WatchParty.resetIdleTimer);
+    document.addEventListener("mousedown", WatchParty.resetIdleTimer);
+    document.addEventListener("keydown", WatchParty.resetIdleTimer);
+
     this.element("chat").onmousemove = () => {
       this.element("chat").classList.remove("wp-received");
       this.element("chat").classList.add("wp-viewed");
       clearTimeout(window.WatchParty.chatViewedTimeout);
       window.WatchParty.chatViewedTimeout = setTimeout(
-        () => document.getElementById("wp-chat").classList.remove("wp-viewed"),
+        () => document.getElementById("wp-chat")?.classList.remove("wp-viewed"),
         2000,
       );
     };
@@ -987,19 +1058,50 @@ module.exports = class WatchParty {
   chat() {
     return `
     <style type="text/css" id="wp-chat-style">
-      #wp-chat {
-          flex-direction: column;
+      #wp-chat-container {
           position: fixed;
           bottom: 0;
           right: 0;
           z-index: 999999;
           margin-bottom: 120px;
+          display: flex;
+          flex-direction: row;
+          align-items: flex-end;
+          pointer-events: none;
+          transition: opacity 0.3s ease-in-out;
+      }
+
+      #wp-chat-container > * {
+          pointer-events: auto;
+      }
+
+      #wp-chat-toggle {
+          background-color: rgba(0, 0, 0, 0.6);
+          color: rgba(255, 255, 255, 0.6);
+          border-right: none;
+          padding: 10px;
+          border-radius: 12px 0 0 12px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background-color 0.2s, color 0.2s;
+      }
+
+      #wp-chat-toggle:hover {
+          background-color: rgba(0, 0, 0, 0.8);
+          color: rgba(255, 255, 255, 1);
+      }
+
+      #wp-chat {
+          flex-direction: column;
           -webkit-mask-image: -webkit-gradient(linear, left top, left bottom, from(rgba(0, 0, 0, 0)), to(rgba(0, 0, 0, 0.0)));
           display: flex;
           transition: all 0.2s;
-          border-radius: 8px 0 0 8px;
           padding: 15px;
           background-color: rgba(0, 0, 0, 0.6);
+          border-right: none;
+          border-bottom: none;
       }
       
       #wp-chat.wp-received {
@@ -1010,17 +1112,17 @@ module.exports = class WatchParty {
           -webkit-mask-image: -webkit-gradient(linear, left top, left bottom, from(rgba(0, 0, 0, 0)), to(rgba(0, 0, 0, 1)));
       }
       
-      #wp-chat:hover {
+      #wp-chat-container:hover #wp-chat {
           -webkit-mask-image: -webkit-gradient(linear, left top, left bottom, from(rgba(0, 0, 0, 1)), to(rgba(0, 0, 0, 1))) !important;
           background-color: rgba(0, 0, 0, 0.9);
       }
         
-      #wp-chat:hover > * {
+      #wp-chat-container:hover #wp-chat > * {
         visibility: initial !important;
         transition: all 0.2s;
       }
 
-      #wp-chat:hover > #wp-msgs {
+      #wp-chat-container:hover #wp-chat > #wp-msgs {
           height: calc(100vh - 350px) !important;
           overflow-y: auto;
       }
@@ -1184,9 +1286,13 @@ module.exports = class WatchParty {
       }
     </style>
 
-    <div id="wp-chat" style="display: none;">
-    <div style="font-weight: 800;text-align: center; margin: 5px 0;">💬 Party Chat</div>
-    <div id="wp-msgs"></div>
+    <div id="wp-chat-container">
+      <div id="wp-chat-toggle" onclick="window.WatchParty.toggleChat()">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
+      </div>
+      <div id="wp-chat" style="display: none;">
+      <div style="font-weight: 800;text-align: center; margin: 5px 0;">💬 Party Chat</div>
+      <div id="wp-msgs"></div>
     <div>
       <textarea id="wp-chat-input" autocomplete="off" onclick="window.WatchParty.picker('none')"></textarea>
       <svg onclick="window.WatchParty.picker('format')" class="wp-open-picker" viewBox="0,0,256,256"><g fill="#fff"><g transform="scale(10.66667,10.66667)"><path d="M12,2c-5.759,0 -10.38061,4.86689 -9.97461,10.71289c0.367,5.289 4.98025,9.28711 10.28125,9.28711h0.69336c1.105,0 2,-0.895 2,-2v-3c0,-1.105 0.895,-2 2,-2h3c1.105,0 2,-0.895 2,-2v-0.69336c0,-5.301 -3.99716,-9.91425 -9.28516,-10.28125c-0.24,-0.017 -0.47884,-0.02539 -0.71484,-0.02539zM12,4c0.19,0 0.38122,0.00653 0.57422,0.01953c4.164,0.289 7.42578,3.92911 7.42578,8.28711v0.69336h-3c-2.206,0 -4,1.794 -4,4v3h-0.69336c-4.358,0 -7.99911,-3.26278 -8.28711,-7.42578c-0.156,-2.25 0.59991,-4.3903 2.12891,-6.0293c1.531,-1.641 3.60956,-2.54492 5.85156,-2.54492zM12.5,5c-0.82843,0 -1.5,0.67157 -1.5,1.5c0,0.82843 0.67157,1.5 1.5,1.5c0.82843,0 1.5,-0.67157 1.5,-1.5c0,-0.82843 -0.67157,-1.5 -1.5,-1.5zM8.5,6c-0.82843,0 -1.5,0.67157 -1.5,1.5c0,0.82843 0.67157,1.5 1.5,1.5c0.82843,0 1.5,-0.67157 1.5,-1.5c0,-0.82843 -0.67157,-1.5 -1.5,-1.5zM16.5,7c-0.82843,0 -1.5,0.67157 -1.5,1.5c0,0.82843 0.67157,1.5 1.5,1.5c0.82843,0 1.5,-0.67157 1.5,-1.5c0,-0.82843 -0.67157,-1.5 -1.5,-1.5zM6.5,10c-0.82843,0 -1.5,0.67157 -1.5,1.5c0,0.82843 0.67157,1.5 1.5,1.5c0.82843,0 1.5,-0.67157 1.5,-1.5c0,-0.82843 -0.67157,-1.5 -1.5,-1.5zM10,14c-1.10457,0 -2,0.89543 -2,2c0,1.10457 0.89543,2 2,2c1.10457,0 2,-0.89543 2,-2c0,-1.10457 -0.89543,-2 -2,-2z"></path></g></g></svg>
@@ -1245,6 +1351,7 @@ module.exports = class WatchParty {
         <button>🎬</button>
         <button>🎤</button>
       </div>
+    </div>
     </div>
     </div>`;
   }
@@ -1407,7 +1514,7 @@ module.exports = class WatchParty {
       messageHtml,
     );
     WatchParty.applyObfuscation();
-    if (document.querySelector("#wp-chat:hover")) return;
+    if (document.querySelector("#wp-chat-container:hover")) return;
     document.querySelector("#wp-chat").classList.add("wp-received");
     clearTimeout(WatchParty.receivedMsgTimeout);
     WatchParty.receivedMsgTimeout = setTimeout(
